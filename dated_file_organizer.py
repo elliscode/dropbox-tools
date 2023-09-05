@@ -8,10 +8,13 @@ import datetime
 dated_file_regexp = "(\d{4})-(\d{2})-(\d{2}) \d{2}.\d{2}.\d{2}"
 
 
+def get_new_location(year, month, entry):
+    return f'/Camera Uploads/{year}/{month}/{entry.name}'
+
 def organize_files_by_year():
     token: str = read_token_file()
     dbx = dropbox.Dropbox(token)
-    result = dbx.files_list_folder('/Camera Uploads')
+    result = dbx.files_list_folder('/Camera Uploads', recursive=True)
     # gather all files in the 'Camera Uploads' directory and figure out the year
     today = datetime.date.today()
     current_year = str(today.year)
@@ -26,7 +29,11 @@ def organize_files_by_year():
                 if photo_year == current_year:
                     continue  # skip the photo move if it is from this current year, this is to avoid issues with camera
                               # uploads duplicating pictures
-                files_to_move[entry.name] = photo_year
+                photo_month = match_object.group(2)
+                new_path = get_new_location(photo_year, photo_month, entry)
+                if entry.path_display == new_path:
+                    continue
+                files_to_move[entry.name] = {"photo_year": photo_year, "old_path": entry.path_display, "new_path": new_path}
                 file_count = file_count + 1
         print(f'Found {file_count} files')
         if result.has_more:
@@ -35,10 +42,17 @@ def organize_files_by_year():
             result = None
     # move each file you found into the year directory it belongs
     moved_count = 0
-    for file_name, folder_name in files_to_move.items():
-        source = f'/Camera Uploads/{file_name}'
-        destination = f'/Camera Uploads/{folder_name}/{file_name}'
-        relocation_result = dbx.files_move_v2(source, destination)
+    for file_name, entry in files_to_move.items():
+        source = f'{entry["old_path"]}'
+        destination = f'{entry["new_path"]}'
+        if source == destination:
+            print(f'Not moving {entry["path"]}, its already in the correct spot')
+            continue
+        try:
+            relocation_result = dbx.files_move_v2(source, destination)
+            print(relocation_result)
+        except Exception as e:
+            print(e)
         print(f'Moved {source} to {destination}!')
         moved_count = moved_count + 1
         print(f'{round(moved_count / file_count * 100, 2)}% complete...')
